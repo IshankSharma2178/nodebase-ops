@@ -40,19 +40,19 @@ nodebase-ops/
    kubectl apply -f prod/certificate/issuer.yml
    ```
 5. **ECR** repository `nodebase` + IAM OIDC role for GitHub Actions (see app repo `cd.yml`).
-6. **Route53**: point `app.yourdomain.com` → nginx LoadBalancer hostname.
+6. **Route53**: point `nodebase.aws.ishankdev.me` → nginx LoadBalancer hostname.
 
 ## Configure placeholders
 
 Search/replace across this repo:
 
-| Placeholder | Replace with |
-|-------------|--------------|
-| `YOUR_GITHUB_ORG` | Your GitHub org/user |
-| `YOUR_AWS_ACCOUNT` | AWS account ID |
-| `app.yourdomain.com` | Production domain |
-| `staging.app.yourdomain.com` | Staging domain |
-| `you@yourdomain.com` | ACME email in `issuer.yml` |
+| Placeholder | Value used |
+|-------------|------------|
+| `YOUR_GITHUB_ORG` | `IshankSharma2178` |
+| `YOUR_AWS_ACCOUNT` | `916785371700` |
+| `app.yourdomain.com` | `nodebase.aws.ishankdev.me` |
+| `staging.app.yourdomain.com` | `stagging.nodebase.aws.ishankdev.me` |
+| `you@yourdomain.com` | `ishanksharma4444@gmail.com` |
 | `REPLACE_WITH_GIT_SHA` | First deploy image tag (CD updates automatically) |
 
 ## Create sealed secrets
@@ -88,7 +88,7 @@ ArgoCD syncs `prod/nodebase/` including PreSync migrate Job.
 
 | Service | Setting |
 |---------|---------|
-| Inngest Cloud | App URL → `https://app.yourdomain.com/api/inngest` |
+| Inngest Cloud | App URL → `https://nodebase.aws.ishankdev.me/api/inngest` |
 | Google/GitHub OAuth | Callback URLs → production domain |
 | Polar | Success URL → production domain |
 | Stripe / Google Form / Telegram | Webhook URLs → production domain |
@@ -106,10 +106,10 @@ ArgoCD syncs `prod/nodebase/` including PreSync migrate Job.
 
 ```bash
 # From nodebase app repo
-docker build --build-arg NEXT_PUBLIC_APP_URL=https://app.yourdomain.com -t nodebase:local .
-aws ecr get-login-password | docker login --username AWS --password-stdin YOUR_AWS_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com
-docker tag nodebase:local YOUR_AWS_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
-docker push YOUR_AWS_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
+docker build --build-arg NEXT_PUBLIC_APP_URL=https://nodebase.aws.ishankdev.me -t nodebase:local .
+aws ecr get-login-password | docker login --username AWS --password-stdin 916785371700.dkr.ecr.us-east-1.amazonaws.com
+docker tag nodebase:local 916785371700.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
+docker push 916785371700.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
 # Update deployment.yml + migrate-job.yml image tags, then argocd sync
 ```
 
@@ -126,4 +126,3 @@ docker push YOUR_AWS_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
 | `application.yml` | ArgoCD Application |
 | `hpa.yml` | CPU autoscaling |
 | `pdb.yml` | Safe rollouts |
-# nodebase-ops
