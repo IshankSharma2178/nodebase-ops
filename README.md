@@ -1,8 +1,8 @@
 # Nodebase GitOps (EKS)
 
-Kubernetes manifests for deploying **Nodebase** to AWS EKS using **ArgoCD**, **nginx Ingress**, **cert-manager**, and **Sealed Secrets**.
+Kubernetes manifests for deploying **Nodebase** to AWS EKS using **ArgoCD**, **nginx Ingress**, and **cert-manager**.
 
-Move this folder to its own Git repository (`nodebase-ops`) when ready. The app repo (`nodebase`) CI updates image tags here.
+The app repo (`node4work`) CI builds Docker images, pushes to ECR, and updates image tags here. ArgoCD watches this repo and syncs to the cluster.
 
 ## Layout
 
@@ -12,35 +12,48 @@ nodebase-ops/
 │   ├── certificate/issuer.yml      # Let's Encrypt ClusterIssuer (apply once)
 │   ├── ingress/ingress.yml         # Production hostname
 │   └── nodebase/                   # App manifests (ArgoCD watches this path)
-├── staging/
-│   ├── ingress/ingress.yml
-│   └── nodebase/
-└── scripts/seal-secret.sh
+├── scripts/
+│   └── bootstrap-cluster.sh        # One-time cluster add-on installer
 ```
+
+## Prerequisites
+
+- AWS EKS cluster created via AWS Console (name: `nodebase`, region: `eu-west-1`)
+- ECR repository created via AWS Console (name: `nodebase`, region: `eu-west-1`)
+- kubectl configured: `aws eks update-kubeconfig --name nodebase --region eu-west-1`
+- helm installed
 
 ## One-time cluster setup
 
-1. **EKS cluster** with managed node group (or Karpenter).
-2. **RDS PostgreSQL** — create DB `nodebase`, note connection string for `DATABASE_URL`.
-3. Install add-ons:
+1. **EKS cluster** created via AWS Console.
+2. **ECR repository** `nodebase` created via AWS Console.
+3. **Database** — Neon DB (external), connection string goes in the K8s secret as `DATABASE_URL`.
+4. Run the bootstrap script:
    ```bash
-   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-   helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace
-
-   helm repo add jetstack https://charts.jetstack.io
-   helm install cert-manager jetstack/cert-manager -n cert-manager --create-namespace --set crds.enabled=true
-
-   helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
-   helm install sealed-secrets sealed-secrets/sealed-secrets -n kube-system
-
-   kubectl apply -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+   ./scripts/bootstrap-cluster.sh
    ```
-4. Apply cluster issuer:
+   This installs ingress-nginx, cert-manager, and ArgoCD, then applies the ClusterIssuer, Ingress, and ArgoCD Application.
+
+5. Create the app secret:
    ```bash
-   kubectl apply -f prod/certificate/issuer.yml
+   kubectl apply -f prod/nodebase/nodebase-secret.yml
    ```
-5. **ECR** repository `nodebase` + IAM OIDC role for GitHub Actions (see app repo `cd.yml`).
-6. **Route53**: point `nodebase.aws.ishankdev.me` → nginx LoadBalancer hostname.
+
+6. **DNS**: point `nodebase.aws.ishankdev.me` CNAME → nginx ingress LB hostname.
+
+## Register ArgoCD app (already done by bootstrap)
+
+```bash
+kubectl apply -f prod/certificate/issuer.yml
+kubectl apply -f prod/ingress/ingress.yml
+kubectl apply -f prod/nodebase/application.yml
+```
+
+ArgoCD syncs `prod/nodebase/` including PreSync migrate Job.
+
+## App secrets
+
+The deployment uses `prod/nodebase/nodebase-secret.yml` (a Kubernetes `Secret` with an `.env` key) mounted at `/app/.env`. This file is gitignored — create it manually on the cluster.
 
 ## Configure placeholders
 
@@ -51,38 +64,8 @@ Search/replace across this repo:
 | `YOUR_GITHUB_ORG` | `IshankSharma2178` |
 | `YOUR_AWS_ACCOUNT` | `916785371700` |
 | `app.yourdomain.com` | `nodebase.aws.ishankdev.me` |
-| `staging.app.yourdomain.com` | `stagging.nodebase.aws.ishankdev.me` |
 | `you@yourdomain.com` | `ishanksharma4444@gmail.com` |
-| `REPLACE_WITH_GIT_SHA` | First deploy image tag (CD updates automatically) |
-
-## Create sealed secrets
-
-```bash
-cp prod/nodebase/.env.template prod/nodebase/.env
-# edit prod/nodebase/.env with real values
-
-chmod +x scripts/seal-secret.sh
-./scripts/seal-secret.sh prod
-# commit prod/nodebase/sealed-secret.yml only
-```
-
-Repeat for staging:
-
-```bash
-cp staging/nodebase/.env.template staging/nodebase/.env
-./scripts/seal-secret.sh staging
-
-## Register ArgoCD apps
-
-```bash
-kubectl apply -f prod/certificate/issuer.yml
-kubectl apply -f prod/ingress/ingress.yml
-kubectl apply -f prod/nodebase/application.yml
-kubectl apply -f staging/ingress/ingress.yml   # optional
-kubectl apply -f staging/nodebase/application.yml  # optional
-```
-
-ArgoCD syncs `prod/nodebase/` including PreSync migrate Job.
+| `REPLACE_WITH_GIT_SHA` | Updated by CI (image tag) |
 
 ## External services (after first deploy)
 
@@ -95,23 +78,14 @@ ArgoCD syncs `prod/nodebase/` including PreSync migrate Job.
 
 ## GitHub Actions secrets (app repo)
 
+See the `deploy.yml` workflow in the `node4work` app repo.
+
 | Secret | Purpose |
 |--------|---------|
-| `AWS_ROLE_ARN` | OIDC role to push to ECR |
+| `AWS_ACCESS_KEY_ID` | ECR push permissions |
+| `AWS_SECRET_ACCESS_KEY` | ECR push permissions |
 | `OPS_REPO_PAT` | PAT with write access to `nodebase-ops` |
-| `NEXT_PUBLIC_APP_URL` | Baked into client bundle at build time |
-| `ARGOCD_AUTH_TOKEN` | Optional: trigger sync after deploy |
-
-## Manual first deploy
-
-```bash
-# From nodebase app repo
-docker build --build-arg NEXT_PUBLIC_APP_URL=https://nodebase.aws.ishankdev.me -t nodebase:local .
-aws ecr get-login-password | docker login --username AWS --password-stdin 916785371700.dkr.ecr.us-east-1.amazonaws.com
-docker tag nodebase:local 916785371700.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
-docker push 916785371700.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
-# Update deployment.yml + migrate-job.yml image tags, then argocd sync
-```
+| `OPS_REPO_NAME` | `IshankSharma2178/nodebase-ops` |
 
 ## Files per app folder
 
@@ -119,9 +93,8 @@ docker push 916785371700.dkr.ecr.us-east-1.amazonaws.com/nodebase:manual1
 |------|---------|
 | `deployment.yml` | Next.js pods |
 | `service.yml` | ClusterIP :80 → :3000 |
-| `ingress` (shared) | TLS + routing |
 | `certificate.yml` | cert-manager Certificate |
-| `sealed-secret.yml` | Encrypted `.env` |
+| `nodebase-secret.yml` | App `.env` secret (gitignored, create manually) |
 | `migrate-job.yml` | ArgoCD PreSync `prisma migrate deploy` |
 | `application.yml` | ArgoCD Application |
 | `hpa.yml` | CPU autoscaling |

@@ -1,3 +1,4 @@
 secret.yml
+nodebase-secret.yml
 *.env
 !.env.template
