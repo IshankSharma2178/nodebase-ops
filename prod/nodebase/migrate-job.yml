@@ -13,9 +13,9 @@ spec:
       restartPolicy: Never
       containers:
         - name: migrate
-          image: 916785371700.dkr.ecr.us-east-1.amazonaws.com/nodebase:REPLACE_WITH_GIT_SHA
+          image: 916785371700.dkr.ecr.eu-west-1.amazonaws.com/nodebase:REPLACE_WITH_GIT_SHA
           workingDir: /app
-          command: ["./node_modules/.bin/prisma"]
+          command: ["/usr/local/bin/prisma"]
           args: ["migrate", "deploy"]
           envFrom:
             - secretRef:
