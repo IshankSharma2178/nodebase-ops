@@ -2,7 +2,7 @@
 
 Kubernetes manifests for deploying **Nodebase** to AWS EKS using **ArgoCD**, **nginx Ingress**, and **cert-manager**.
 
-The app repo (`nodebase`) CI builds Docker images, pushes to ECR, and updates image tags here. ArgoCD watches this repo and syncs to the cluster.
+The app repo (`node4work`) CI builds Docker images, pushes to ECR, and updates image tags here. ArgoCD watches this repo and syncs to the cluster.
 
 ## Layout
 
@@ -12,41 +12,36 @@ nodebase-ops/
 │   ├── certificate/issuer.yml      # Let's Encrypt ClusterIssuer (apply once)
 │   ├── ingress/ingress.yml         # Production hostname
 │   └── nodebase/                   # App manifests (ArgoCD watches this path)
+├── scripts/
+│   └── bootstrap-cluster.sh        # One-time cluster add-on installer
 ```
 
 ## Prerequisites
 
-- AWS EKS cluster provisioned via the `nodebase-infra` Terraform repo
-- ECR repository `nodebase` (from Terraform)
-- Add-ons installed (below)
+- AWS EKS cluster created via AWS Console (name: `nodebase`, region: `eu-west-1`)
+- ECR repository created via AWS Console (name: `nodebase`, region: `eu-west-1`)
+- kubectl configured: `aws eks update-kubeconfig --name nodebase --region eu-west-1`
+- helm installed
 
 ## One-time cluster setup
 
-1. **EKS cluster** provisioned via `nodebase-infra` (Terraform).
-2. **Database** — Neon DB (external), connection string goes in `.env` as `DATABASE_URL`.
-3. Install add-ons:
+1. **EKS cluster** created via AWS Console.
+2. **ECR repository** `nodebase` created via AWS Console.
+3. **Database** — Neon DB (external), connection string goes in the K8s secret as `DATABASE_URL`.
+4. Run the bootstrap script:
    ```bash
-   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-   helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace
+   ./scripts/bootstrap-cluster.sh
+   ```
+   This installs ingress-nginx, cert-manager, and ArgoCD, then applies the ClusterIssuer, Ingress, and ArgoCD Application.
 
-   helm repo add jetstack https://charts.jetstack.io
-   helm install cert-manager jetstack/cert-manager -n cert-manager --create-namespace --set crds.enabled=true
+5. Create the app secret:
+   ```bash
+   kubectl apply -f prod/nodebase/nodebase-secret.yml
    ```
 
-4. Install ArgoCD:
-   ```bash
-   helm repo add argo https://argoproj.github.io/argo-helm
-   helm install argocd argo/argo-cd -n argocd --create-namespace --set server.service.type=LoadBalancer
-   ```
+6. **DNS**: point `nodebase.aws.ishankdev.me` CNAME → nginx ingress LB hostname.
 
-5. Apply cluster issuer:
-   ```bash
-   kubectl apply -f prod/certificate/issuer.yml
-   ```
-
-6. **Route53** (optional for now): point `nodebase.aws.ishankdev.me` → nginx LoadBalancer hostname.
-
-## Register ArgoCD app
+## Register ArgoCD app (already done by bootstrap)
 
 ```bash
 kubectl apply -f prod/certificate/issuer.yml
@@ -58,7 +53,7 @@ ArgoCD syncs `prod/nodebase/` including PreSync migrate Job.
 
 ## App secrets
 
-The deployment mounts `prod/nodebase/nodebase-secret.yml` (a Kubernetes `Secret` with an `.env` key) at `/app/.env`. This repo keeps it in plaintext for a solo-dev setup. For a more secure approach, migrate to Sealed Secrets (kubeseal) or an external secrets store.
+The deployment uses `prod/nodebase/nodebase-secret.yml` (a Kubernetes `Secret` with an `.env` key) mounted at `/app/.env`. This file is gitignored — create it manually on the cluster.
 
 ## Configure placeholders
 
@@ -83,7 +78,7 @@ Search/replace across this repo:
 
 ## GitHub Actions secrets (app repo)
 
-See the `deploy.yml` workflow in the `nodebase` app repo.
+See the `deploy.yml` workflow in the `node4work` app repo.
 
 | Secret | Purpose |
 |--------|---------|
@@ -99,7 +94,7 @@ See the `deploy.yml` workflow in the `nodebase` app repo.
 | `deployment.yml` | Next.js pods |
 | `service.yml` | ClusterIP :80 → :3000 |
 | `certificate.yml` | cert-manager Certificate |
-| `nodebase-secret.yml` | App `.env` secret |
+| `nodebase-secret.yml` | App `.env` secret (gitignored, create manually) |
 | `migrate-job.yml` | ArgoCD PreSync `prisma migrate deploy` |
 | `application.yml` | ArgoCD Application |
 | `hpa.yml` | CPU autoscaling |

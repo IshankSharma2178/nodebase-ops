@@ -3,14 +3,15 @@
 # Bootstrap the Nodebase EKS cluster environment.
 #
 # Prerequisites (must be run BEFORE this script):
-#   1. Terraform applied from nodebase-infra (creates EKS, ECR, VPC)
-#   2. kubectl configured: aws eks update-kubeconfig --name nodebase --region eu-west-1
-#   3. helm installed
+#   1. EKS cluster created via AWS Console (name: nodebase, region: eu-west-1)
+#   2. ECR repository created via AWS Console (name: nodebase, region: eu-west-1)
+#   3. kubectl configured: aws eks update-kubeconfig --name nodebase --region eu-west-1
+#   4. helm installed
 #
 # Run from the nodebase-ops repo root:
 #   ./scripts/bootstrap-cluster.sh
 #
-# This installs: ingress-nginx, cert-manager, Sealed Secrets, ArgoCD,
+# This installs: ingress-nginx, cert-manager, ArgoCD,
 # applies the ClusterIssuer, and registers the ArgoCD Application.
 ###############################################################################
 set -euo pipefail
@@ -22,34 +23,29 @@ echo "==> Verifying AWS CLI and kubectl access"
 aws eks update-kubeconfig --name "${EKS_CLUSTER}" --region "${REGION}"
 kubectl cluster-info
 
-echo "==> 1/5 Installing ingress-nginx"
+echo "==> 1/4 Installing ingress-nginx"
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
   --namespace ingress-nginx --create-namespace
 
-echo "==> 2/5 Installing cert-manager"
+echo "==> 2/4 Installing cert-manager"
 helm repo add jetstack https://charts.jetstack.io || true
 helm upgrade --install cert-manager jetstack/cert-manager \
   --namespace cert-manager --create-namespace \
   --set crds.enabled=true
 
-echo "==> 3/5 Installing Sealed Secrets"
-helm repo add sealed-secrets https://bitnami.github.io/sealed-secrets || true
-helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
-  --namespace kube-system
-
-echo "==> 4/5 Installing ArgoCD"
+echo "==> 3/4 Installing ArgoCD"
 helm repo add argo https://argoproj.github.io/argo-helm || true
 helm upgrade --install argocd argo/argo-cd \
   --namespace argocd --create-namespace \
   --set server.service.type=LoadBalancer
 
-echo "==> Waiting for ingress-nginx, cert-manager, sealed-secrets, argocd to become ready"
+echo "==> Waiting for ingress-nginx, cert-manager, argocd to become ready"
 kubectl wait --for=condition=Available deployment/ingress-nginx-controller -n ingress-nginx --timeout=180s || true
 kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=180s || true
 kubectl wait --for=condition=Available deployment/argocd-server -n argocd --timeout=180s || true
 
-echo "==> 5/5 Applying ClusterIssuer and ArgoCD Application"
+echo "==> 4/4 Applying ClusterIssuer and ArgoCD Application"
 kubectl apply -f prod/certificate/issuer.yml
 kubectl apply -f prod/ingress/ingress.yml
 kubectl apply -f prod/nodebase/application.yml
